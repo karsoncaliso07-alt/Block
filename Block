@@ -630,4 +630,641 @@ BDTab:CreateInput({
     Callback = function(text)
         local num = tonumber(text)
         if num then
-            antiF
+            antiFlickDelay = math.max(0, num) -- don’t allow negative
+        end
+    end,
+})
+
+-- ===== auto-adjust DBTFBPS based on killer (drop this after KillersFolder / BD inputs) =====
+
+local function getNearestKillerModel()
+    local myChar = lp.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return nil end
+
+    local closest, closestDist = nil, math.huge
+    for _, k in ipairs(KillersFolder:GetChildren()) do
+        if k and k:IsA("Model") then
+            local hrp = k:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local d = (hrp.Position - myRoot.Position).Magnitude
+                if d < closestDist then
+                    closest, closestDist = k, d
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local function applyDelayForKillerModel(killerModel)
+    if not killerModel then
+        -- no killer found -> restore manual value
+        if antiFlickDelay ~= _savedManualAntiFlickDelay then
+            antiFlickDelay = _savedManualAntiFlickDelay
+            print(("Auto-DBTFBPS: no killer -> restore antiFlickDelay = %s"):format(tostring(antiFlickDelay)))
+        end
+        return
+    end
+
+    local key = (tostring(killerModel.Name) or ""):lower()
+    local mapped = killerDelayMap[key]
+
+    if mapped ~= nil then
+        if antiFlickDelay ~= mapped then
+            antiFlickDelay = mapped
+            print(("Auto-DBTFBPS: matched killer '%s' -> antiFlickDelay = %s"):format(killerModel.Name, tostring(mapped)))
+        end
+    else
+        -- killer not in mapping: restore manual value (avoid surprising changes)
+        if antiFlickDelay ~= _savedManualAntiFlickDelay then
+            antiFlickDelay = _savedManualAntiFlickDelay
+            print(("Auto-DBTFBPS: killer '%s' not mapped -> restore antiFlickDelay = %s"):format(killerModel.Name, tostring(_savedManualAntiFlickDelay)))
+        end
+    end
+end
+
+-- small throttled heartbeat loop (runs only when toggle enabled)
+local adjustTicker = 0
+RunService.Heartbeat:Connect(function(dt)
+    if not autoAdjustDBTFBPS then return end
+    adjustTicker = adjustTicker + dt
+    if adjustTicker < 0.15 then return end -- check ~every 0.15s
+    adjustTicker = 0
+
+    local nearest = getNearestKillerModel()
+    applyDelayForKillerModel(nearest)
+end)
+
+-- immediate update helper when killers spawn/leave or user toggles
+local function doImmediateUpdate()
+    if not autoAdjustDBTFBPS then return end
+    local nearest = getNearestKillerModel()
+    applyDelayForKillerModel(nearest)
+end
+
+-- respond quickly when killers are added/removed (so toggle reacts immediately)
+KillersFolder.ChildAdded:Connect(function() task.delay(0.05, doImmediateUpdate) end)
+KillersFolder.ChildRemoved:Connect(function() task.delay(0.05, doImmediateUpdate) end)
+
+-- UI toggle to enable/disable the auto-adjust behavior (place this near other BDTab controls)
+BDTab:CreateToggle({
+    Name = "Auto-adjust DBTFBPS based on killer",
+    CurrentValue = false,
+    Flag = "AutoAdjustDBTFBPS",
+    Callback = function(state)
+        autoAdjustDBTFBPS = state
+        if state then
+            -- save the current manual value so we can restore it when the toggle is off
+            _savedManualAntiFlickDelay = antiFlickDelay or 0
+            doImmediateUpdate()
+            print("Auto-DBTFBPS: enabled (saved manual antiFlickDelay = " .. tostring(_savedManualAntiFlickDelay) .. ")")
+        else
+            -- restore manual value when user disables
+            antiFlickDelay = _savedManualAntiFlickDelay
+            print("Auto-DBTFBPS: disabled -> restored antiFlickDelay = " .. tostring(antiFlickDelay))
+        end
+    end,
+})
+-- ===== end auto-adjust snippet =====
+
+
+local stagger  = 0.02
+
+BDTab:CreateInput({
+    Name = "delay before each block parts spawns (seconds)",
+    PlaceholderText = "0.02",
+    RemoveTextAfterFocusLost = false,
+    Flag = "AntiFlickDelayEachParts",
+    Callback = function(text)
+        local num = tonumber(text)
+        if num then
+            stagger = math.max(0, num) -- don’t allow negative
+        end
+    end,
+})
+
+
+
+BDTab:CreateInput({
+    Name = "how much studs infront killer the block parts are gonna spawn (studs)",
+    PlaceholderText = "2.7",
+    RemoveTextAfterFocusLost = false,
+    Flag = "AntiFlickDistanceInfront",
+    Callback = function(text)
+        local num = tonumber(text)
+        if num then
+            antiFlickBaseOffset = math.max(0, num) -- don’t allow negative
+        end
+    end,
+})
+
+PredictiveTab:CreateToggle({
+    Name = "Predictive Auto Block",
+    CurrentValue = false,
+    Callback = function(Value)
+        predictiveBlockOn = Value
+    end,
+})
+
+PredictiveTab:CreateInput({
+    Name = "Detection Range",
+    PlaceholderText = "10",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(text)
+        local num = tonumber(text)
+        if num then
+            detectionRange = num
+        end
+    end,
+})
+
+
+PredictiveTab:CreateSlider({
+    Name = "Edge Killer",
+    Range = {0, 7},
+    Increment = 0.1,
+    CurrentValue = 3,
+    Flag = "edgekillerlmao",
+    Callback = function(val)
+        edgeKillerDelay = val
+    end,
+})
+
+PredictiveTab:CreateParagraph({
+    Title = "Edge Killer",
+    Content = "how many secs until it blocks (resets when killer gets out of range)"
+})
+
+FakeBlockTab:CreateButton({
+    Name = "Load Fake Block",
+    Callback = function()
+        pcall(function()
+            local fakeGui = PlayerGui:FindFirstChild("FakeBlockGui")
+            if not fakeGui then
+                local success, result = pcall(function()
+                    return loadstring(game:HttpGet("https://raw.githubusercontent.com/skibidi399/Auto-block-script/refs/heads/main/fakeblock"))()
+                end)
+                if not success then
+                    warn("❌ Failed to load Fake Block GUI:", result)
+                end
+            else
+                fakeGui.Enabled = true
+                print("✅ Fake Block GUI enabled")
+            end
+        end)
+    end
+})
+
+AutoPunchTab:CreateToggle({
+Name = "Auto Punch",
+CurrentValue = false,
+Flag = "AutoPunchToggle",
+Callback = function(Value) autoPunchOn = Value end
+})
+
+AutoPunchTab:CreateToggle({
+Name = "Fling Punch",
+CurrentValue = false,
+Callback = function(Value) flingPunchOn = Value end
+})
+
+AutoPunchTab:CreateToggle({
+Name = "Punch Aimbot",
+CurrentValue = false,
+Flag = "PunchAimToggle",
+Callback = function(Value) aimPunch = Value end
+})
+
+local predictionValue = 4
+
+AutoPunchTab:CreateSlider({
+    Name = "Aim Prediction",
+    Range = {0, 10},
+    Increment = 0.1,
+    Suffix = "studs",
+    CurrentValue = predictionValue,
+    Flag = "PredictionSlider",
+    Callback = function(Value)
+        predictionValue = Value
+    end,
+})
+
+AutoPunchTab:CreateSlider({
+Name = "Fling Power",
+Range = {5000, 50000000000000},
+Increment = 1000000,
+CurrentValue = 10000,
+Flag = "FlingPower",
+Callback = function(Value) flingPower = Value end
+})
+
+-- Custom Block Animation
+CustomAnimationsTab:CreateInput({
+    Name = "Custom Block Animation",
+    PlaceholderText = "AnimationId",
+    RemoveTextAfterFocusLost = false,
+    Flag = "customblockid",
+    Callback = function(Text) customBlockAnimId = Text end
+})
+
+CustomAnimationsTab:CreateToggle({
+Name = "Enable Custom Block Animation",
+CurrentValue = false,
+Callback = function(Value) customBlockEnabled = Value end
+})
+
+CustomAnimationsTab:CreateInput({
+    Name = "Custom Punch Animation (not for M3/M4)",
+    PlaceholderText = "AnimationId",
+    RemoveTextAfterFocusLost = false,
+    Flag = "custompunchid",
+    Callback = function(Text) customPunchAnimId = Text end
+})
+
+CustomAnimationsTab:CreateToggle({
+Name = "Enable Custom Punch Animation",
+CurrentValue = false,
+Callback = function(Value) customPunchEnabled = Value end
+})
+
+CustomAnimationsTab:CreateInput({
+    Name = "Charge Animation ID",
+    PlaceholderText = "Put animation ID here",
+    RemoveTextAfterFocusLost = false,
+    Flag = "customchargeid",
+    Callback = function(input)
+        customChargeAnimId = input
+    end,
+})
+
+CustomAnimationsTab:CreateToggle({
+    Name = "Custom Charge Animation",
+    CurrentValue = false,
+    Callback = function(value)
+        customChargeEnabled = value
+    end,
+})
+
+-- Button to run Infinite Yield
+MiscTab:CreateButton({
+    Name = "Run Infinite Yield",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))()
+    end,
+})
+
+-- Message below the button
+MiscTab:CreateParagraph({
+    Title = "Tip",
+    Content = 'Run Infinite Yield and type "antifling" so punch fling works better.'
+})
+
+-- delete for pc execs
+MiscTab:CreateToggle({
+    Name = "Infinite Stamina",
+    CurrentValue = false,
+    Flag = "InfStamina",
+    Callback = function(value)
+        infiniteStamina = value
+        if infiniteStamina then
+            enableInfiniteStamina()
+        else
+            local success, StaminaModule = pcall(function()
+                return require(game.ReplicatedStorage.Systems.Character.Game.Sprinting)
+            end)
+            if success and StaminaModule then
+                StaminaModule.StaminaLossDisabled = false
+            end
+        end
+    end
+})
+
+
+local function addESP(obj)
+    if not obj:IsA("Model") then return end
+    if not obj:FindFirstChild("HumanoidRootPart") then return end
+
+    local plr = Players:GetPlayerFromCharacter(obj)
+    if not plr then return end -- ✅ only add ESP if it's a player character
+
+    -- Prevent duplicates
+    if obj:FindFirstChild("ESP_Highlight") then return end
+
+    -- Highlight
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "ESP_Highlight"
+    highlight.FillColor = Color3.fromRGB(255, 0, 0)
+    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.Adornee = obj
+    highlight.Parent = obj
+
+    -- Billboard
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "ESP_Billboard"
+    billboard.Size = UDim2.new(0, 100, 0, 50)
+    billboard.AlwaysOnTop = true
+    billboard.Adornee = obj:FindFirstChild("HumanoidRootPart")
+    billboard.Parent = obj
+
+    local textLabel = Instance.new("TextLabel")
+    textLabel.Name = "ESP_Text"
+    textLabel.Size = UDim2.new(1, 0, 1, 0)
+    textLabel.BackgroundTransparency = 1
+    textLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+    textLabel.TextScaled = true
+    textLabel.Font = Enum.Font.SourceSansBold
+    textLabel.Text = obj.Name
+    textLabel.Parent = billboard
+end
+
+-- Function to clear ESP
+local function clearESP(obj)
+    if obj:FindFirstChild("ESP_Highlight") then
+        obj.ESP_Highlight:Destroy()
+    end
+    if obj:FindFirstChild("ESP_Billboard") then
+        obj.ESP_Billboard:Destroy()
+    end
+end
+
+-- Function to refresh all ESP
+local function refreshESP()
+    if not espEnabled then
+        for _, killer in pairs(KillersFolder:GetChildren()) do
+            clearESP(killer)
+        end
+        return
+    end
+
+    for _, killer in pairs(KillersFolder:GetChildren()) do
+        addESP(killer)
+    end
+end
+
+
+-- Modify ChildAdded connection:
+KillersFolder.ChildAdded:Connect(function(child)
+    if espEnabled then
+        task.wait(0.1) -- wait for HRP
+        addESP(child)
+    end
+end)
+
+
+KillersFolder.ChildRemoved:Connect(function(child)
+    clearESP(child)
+end)
+
+-- Distance updater
+RunService.RenderStepped:Connect(function()
+    if not espEnabled then return end
+    local char = lp.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    for _, killer in pairs(KillersFolder:GetChildren()) do
+        local billboard = killer:FindFirstChild("ESP_Billboard")
+        if billboard and billboard:FindFirstChild("ESP_Text") and killer:FindFirstChild("HumanoidRootPart") then
+            local dist = (killer.HumanoidRootPart.Position - hrp.Position).Magnitude
+            billboard.ESP_Text.Text = string.format("%s\n[%d]", killer.Name, dist)
+        end
+    end
+end)
+
+MiscTab:CreateToggle({
+    Name = "Killer ESP",
+    CurrentValue = false,
+    Flag = "KillerESP_Toggle",
+    Callback = function(Value)
+        espEnabled = Value
+        refreshESP()
+    end,
+})
+
+-- Helpers
+local function fireRemoteBlock()
+local args = {"UseActorAbility", "Block"}
+ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent"):FireServer(unpack(args))
+end
+
+local function fireRemotePunch()
+local args = {"UseActorAbility", "Punch"}
+ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent"):FireServer(unpack(args))
+end
+
+
+
+
+-- Push *into* the killer (drops in for doLegitBlockTP_withVelocity)
+
+local function playCustomAnim(animId, isPunch)
+    if not Humanoid then
+        warn("Humanoid missing")
+        return
+    end
+
+    if not animId or animId == "" then
+        warn("No animation ID provided")
+        return
+    end
+
+    local now = tick()
+    local lastTime = isPunch and lastPunchTime or lastBlockTime
+    if now - lastTime < 1 then
+        return
+    end
+
+    -- Stop other known anims
+    for _, track in ipairs(Humanoid:GetPlayingAnimationTracks()) do
+        local animNum = tostring(track.Animation.AnimationId):match("%d+")
+        if table.find(isPunch and punchAnimIds or blockAnimIds, animNum) then
+            track:Stop()
+        end
+    end
+
+    -- Create and load the animation
+    local anim = Instance.new("Animation")
+    anim.AnimationId = "rbxassetid://" .. animId
+
+    local success, track = pcall(function()
+        return Humanoid:LoadAnimation(anim)
+    end)
+
+    if success and track then
+        print("✅ Playing custom " .. (isPunch and "punch" or "block") .. " animation:", animId)
+        track:Play()
+        if isPunch then
+            lastPunchTime = now
+        else
+            lastBlockTime = now
+        end
+    else
+        warn("❌ Failed to load or play custom animation: " .. animId)
+    end
+end
+
+-- Fling coroutine
+coroutine.wrap(function()
+    local hrp, c, vel, movel = nil, nil, nil, 0.1
+    while true do
+        RunService.Heartbeat:Wait()
+        if hiddenfling then
+            while hiddenfling and not (c and c.Parent and hrp and hrp.Parent) do
+                RunService.Heartbeat:Wait()
+                c = lp.Character
+                hrp = c and c:FindFirstChild("HumanoidRootPart")
+            end
+            if hiddenfling then
+                vel = hrp.Velocity
+                hrp.Velocity = vel * flingPower + Vector3.new(0, flingPower, 0)
+                RunService.RenderStepped:Wait()
+                hrp.Velocity = vel
+                RunService.Stepped:Wait()
+                hrp.Velocity = vel + Vector3.new(0, movel, 0)
+                movel = movel * -1
+            end
+        end
+    end
+end)()
+
+local cachedAnimator = nil
+local function refreshAnimator()
+    local char = lp.Character
+    if not char then
+        cachedAnimator = nil
+        return
+    end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        local anim = hum:FindFirstChildOfClass("Animator")
+        cachedAnimator = anim or nil
+    else
+        cachedAnimator = nil
+    end
+end
+
+lp.CharacterAdded:Connect(function(char)
+    task.wait(0.5) -- allow Humanoid/Animator to be created
+    refreshAnimator()
+end)
+
+-- ===== Robust Sound Auto Block (replace your current Sound Auto Block) =====
+local soundHooks = {}     -- [Sound] = {playedConn, propConn, destroyConn}
+local soundBlockedUntil = {} -- [Sound] = timestamp when we can block again (throttle)
+
+local function getNearestKillerRoot(maxDist)
+    local killersFolder = workspace:FindFirstChild("Players") and workspace.Players:FindFirstChild("Killers")
+    if not killersFolder then return nil end
+
+    local myRoot = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return nil end
+
+    local closest, closestDist = nil, maxDist or math.huge
+    for _, killer in ipairs(killersFolder:GetChildren()) do
+        local hrp = killer:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local dist = (hrp.Position - myRoot.Position).Magnitude
+            if dist < closestDist then
+                closest, closestDist = hrp, dist
+            end
+        end
+    end
+    return closest
+end
+
+local function extractNumericSoundId(sound)
+    if not sound or not sound.SoundId then return nil end
+    local sid = tostring(sound.SoundId)
+
+    -- Prefer numeric id if present
+    local num = sid:match("%d+")
+    if num then return num end
+
+    -- Fallbacks (these won't match your numeric whitelist, but kept for completeness)
+    local hash = sid:match("[&%?]hash=([^&]+)")
+    if hash then return "&hash="..hash end
+    local path = sid:match("rbxasset://sounds/.+")
+    if path then return path end
+
+    return nil
+end
+
+local function getSoundWorldPosition(sound)
+    if not sound then return nil end
+    if sound.Parent and sound.Parent:IsA("BasePart") then
+        return sound.Parent.Position, sound.Parent
+    end
+    if sound.Parent and sound.Parent:IsA("Attachment") and sound.Parent.Parent and sound.Parent.Parent:IsA("BasePart") then
+        return sound.Parent.Parent.Position, sound.Parent.Parent
+    end
+    -- deep search for any BasePart ancestor/descendant
+    local found = sound.Parent and sound.Parent:FindFirstChildWhichIsA("BasePart", true)
+    if found then
+        return found.Position, found
+    end
+    return nil, nil
+end
+
+local function getCharacterFromDescendant(inst)
+    if not inst then return nil end
+    local model = inst:FindFirstAncestorOfClass("Model")
+    if model and model:FindFirstChildOfClass("Humanoid") then
+        return model
+    end
+    return nil
+end
+
+local function isPointInsidePart(part, point)
+    if not (part and point) then return false end
+    -- convert world point to part-local coordinates and test against half-extents
+    local rel = part.CFrame:PointToObjectSpace(point)
+    local half = part.Size * 0.5
+    return math.abs(rel.X) <= half.X + 0.001 and
+           math.abs(rel.Y) <= half.Y + 0.001 and
+           math.abs(rel.Z) <= half.Z + 0.001
+end
+
+-- ===== predictive helpers (paste near top, before attemptBlockForSound) =====
+
+-- keep killerState updated each frame (lightweight)
+RunService.RenderStepped:Connect(function(dt)
+    if dt <= 0 then return end
+    local killersFolder = workspace:FindFirstChild("Players") and workspace.Players:FindFirstChild("Killers")
+    if not killersFolder then return end
+
+    for _, killer in ipairs(killersFolder:GetChildren()) do
+        if killer and killer.Parent then
+            local hrp = killer:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local st = killerState[killer] or { prevPos = hrp.Position, prevLook = hrp.CFrame.LookVector, vel = Vector3.new(), angVel = 0 }
+                -- linear velocity sample & smoothing
+                local newVel = (hrp.Position - st.prevPos) / math.max(dt, 1e-6)
+                st.vel = st.vel and st.vel:Lerp(newVel, SMOOTHING_LERP) or newVel
+
+                -- angular velocity (radians/sec, signed by left/right)
+                local prevLook = st.prevLook or hrp.CFrame.LookVector
+                local look = hrp.CFrame.LookVector
+                local dot = math.clamp(prevLook:Dot(look), -1, 1)
+                local angle = math.acos(dot) -- 0..pi
+                local crossY = prevLook:Cross(look).Y
+                local angSign = (crossY >= 0) and 1 or -1
+                local newAngVel = (angle / math.max(dt, 1e-6)) * angSign
+                st.angVel = (st.angVel * (1 - SMOOTHING_LERP)) + (newAngVel * SMOOTHING_LERP)
+
+                st.prevPos = hrp.Position
+                st.prevLook = look
+                killerState[killer] = st
+            end
+        end
+    end
+end)
+
+-- near top with other locals
+local _LP = Players.LocalPlayer
+local _isFacing = isFacing
+local _fireRemoteBlock = fireRemoteBlock
+local _fireRemotePunch = fireRemotePunch
+local _cachedBlockBtn = cachedBlockBtn
+local _cachedCooldown = cachedCooldown            -- these may be 
