@@ -744,7 +744,7 @@ BDTab:CreateInput({
     end,
 })
 
-
+icon = 93254897248735,
 
 BDTab:CreateInput({
     Name = "how much studs infront killer the block parts are gonna spawn (studs)",
