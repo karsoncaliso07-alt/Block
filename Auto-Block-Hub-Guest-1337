@@ -35,7 +35,7 @@ local AutoPunchTab = Window:CreateTab("Auto Punch", 4483362458)
 local CustomAnimationsTab = Window:CreateTab("Custom Animations", 4483362458)
 local MiscTab = Window:CreateTab("Misc", 4483362458)
 
-
+Showtext = "Guest Hub",
 
 -- IDs.
 
