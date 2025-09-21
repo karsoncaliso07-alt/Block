@@ -15,12 +15,14 @@ local TestService = game:GetService("TestService")
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 local Window = Rayfield:CreateWindow({
-Name = "Auto Block Hub",
-LoadingTitle = "Auto Block Script",
-LoadingSubtitle = "by Skibidi Shots",
+Name = "Guest Hub",
+Icon = 93254897248735,
+LoadingTitle = "Guest Hub Script",
+LoadingSubtitle = "by Guestsaken",
+Showtext = "GuestHub",
 ConfigurationSaving = {
 Enabled = true,
-FolderName = "AutoBlockHub",
+FolderName = "GuestHub",
 FileName = "Settings"
 },
 Discord = {Enabled = false},
@@ -35,7 +37,7 @@ local AutoPunchTab = Window:CreateTab("Auto Punch", 4483362458)
 local CustomAnimationsTab = Window:CreateTab("Custom Animations", 4483362458)
 local MiscTab = Window:CreateTab("Misc", 4483362458)
 
-Showtext = "Guest Hub",
+
 
 -- IDs.
 
@@ -744,7 +746,7 @@ BDTab:CreateInput({
     end,
 })
 
-icon = 93254897248735,
+
 
 BDTab:CreateInput({
     Name = "how much studs infront killer the block parts are gonna spawn (studs)",
