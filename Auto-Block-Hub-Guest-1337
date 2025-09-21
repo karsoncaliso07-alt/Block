@@ -8,7 +8,7 @@ local PlayerGui = lp:WaitForChild("PlayerGui")
 local Humanoid, Animator
 local StarterGui  = game:GetService("StarterGui")
 local TestService = game:GetService("TestService")
-
+ 
 -- Place in ReplicatedFirst (LocalScript
 
 -- Continue script 
